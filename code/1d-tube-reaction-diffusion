@@ -1,0 +1,110 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+import matplotlib
+from matplotlib.ticker import FormatStrFormatter
+matplotlib.rcParams['font.family'] = 'arial'
+matplotlib.use('agg')
+k1 = 9                                          # Constants
+D_base = 1e-5                                   # Diffusion coefficient for all compounds
+                                                # Grid and time step parameters
+dx = 0.01                                       # Spatial step size (cm)
+Nx = int(18/dx)                                 # Number of grid points 1800
+dt = 0.1                                        # Time step size
+Nt = 18000                                      # Number of time steps
+
+                                                # Initialize concentration arrays with the specified initial conditions
+u = np.zeros(Nx + 2)                            # TDS
+v = np.zeros(Nx + 2)                            # MCE
+w = np.zeros(Nx + 2)                            # HEDT
+x = np.zeros(Nx + 2)                            # DDDC
+y = np.zeros(Nx + 2)                            # HEDS
+x_saver,y_saver=np.zeros(Nx + 2),np.zeros(Nx + 2)
+saver=np.zeros((Nt+2,Nx+2))                     # saves
+D_x = np.full(Nx+2, D_base)
+k2=np.zeros(Nx + 2)
+k2[1]=0.6
+# Initial conditions
+x[1] = 0.01                                     # DDDC concentration at one end
+y[1] = 0.01                                     # HEDS concentration at one end
+u[:] = 0.01                                     # TDS concentration in the tube
+v[:] = 0.02                                     # MCE concentration at the other end
+u[1]=0
+v[1]=0                                          # TDS, MCE and HEDT is 0 everywhere initially, as per w = np.zeros(Nx+2)
+                                                # Time-stepping loop
+for n in range(Nt):
+    u_next = u.copy()                           # Copy and save for data exchange
+    v_next = v.copy()
+    w_next = w.copy()
+    x_next = x.copy()
+    y_next = y.copy()
+                                                # Enforce Neumann boundary conditions (zero flux) at both ends
+    u_next[0], u_next[Nx+1] = u_next[1], u_next[Nx]
+    v_next[0], v_next[Nx+1] = v_next[1], v_next[Nx]
+    w_next[0], w_next[Nx+1] = w_next[1], w_next[Nx]
+    x_next[0], x_next[Nx+1] = x_next[1], x_next[Nx]
+    y_next[0], y_next[Nx + 1] = y_next[1], y_next[Nx]
+    for i in range(1, Nx + 1):
+        if x[i]>0.0003:                         # Threshold for k2 change in sol(I)-gel fronts in (Figure S13.)
+            k2[i]=9.7
+        u_next[i] = u[i] + dt * ((D_x[i] * (u[i + 1] - 2 * u[i] + u[i - 1]) / dx ** 2) - k1*u[i]*v[i])
+        v_next[i] = v[i] + dt * ((D_x[i] * (v[i + 1] - 2 * v[i] + v[i - 1]) / dx ** 2) - k1 * u[i] * v[i] - k2[i] * v[i] * w[i])
+        w_next[i] = w[i] + dt * ((D_x[i] * (w[i + 1] - 2 * w[i] + w[i - 1]) / dx ** 2) + k1 * u[i] * v[i] - k2[i] * v[i] * w[i])
+        x_next[i] = x[i] + dt * ((D_x[i] * (x[i + 1] - 2 * x[i] + x[i - 1]) / dx ** 2) + k2[i] * v[i] * w[i])
+        y_next[i] = y[i] + dt * ((D_x[i] * (y[i + 1] - 2 * y[i] + y[i - 1]) / dx ** 2) + k2[i] * v[i] * w[i])
+                                                # Update solutions(concentration for y)
+    saver[n]=y_next
+    u, v, w, x, y = u_next, v_next, w_next, x_next,y_next
+m=0
+for i in range(0,Nt+1):                         # plot the (Figure S20.)
+    if i % 50 == 0:
+        for j in range(0, Nx +1):               # Change mol/L to mM
+            x_saver[j]=dx*j
+            y_saver[j]=saver[i][j]*1000
+            if y_saver[j]>8:
+                m=j
+        fig = plt.figure(figsize=(8, 8))        # Adjust the figure size as necessary
+        ax1 = fig.add_axes([0.1, 0.050, 0.35,0.8])
+        ax1.plot(y_saver, x_saver)
+        ax1.set_ylim(0, 16)
+        ax1.invert_yaxis()
+        ax1.tick_params(axis='x', labelsize=16)
+        ax1.tick_params(axis='y', labelsize=16)
+        ax1.axhline(y=m * dx - 0.5, color='limegreen', linestyle='--',lw=3)
+        ax1.axhline(y=m * dx + 0.5, color='limegreen', linestyle='--',lw=3)
+        ax1.tick_params(top=True, labeltop=True, bottom=False, labelbottom=False)
+        ax1.set_xlabel('concentration (mM)', labelpad=-520,size=20)
+        ax1.set_ylabel('tube position(mm)', labelpad=0,size=20)
+        ax1.axhspan(ymin=0, ymax=m * dx, facecolor='blue', alpha=0.5)
+        ax1.axhspan(ymin=m *dx, ymax=16, facecolor='gold', alpha=0.6)
+        ax1.set_xlim(0, 10.1)  # 设置新的x轴范围，以反映mM单位
+        ax1.set_xticks([0, 2, 4, 6, 8, 10])
+        ax2 = fig.add_axes([0.55, 0.3, 0.35, 0.3])
+        ax2.plot(y_saver, x_saver)
+        if i>40450:
+            ax2.set_ylim(15.5,16.5)
+        else:
+            ax2.set_ylim(m *dx - 0.5, m * dx + 0.5)
+        ax2.tick_params(width=3,colors='limegreen',labelcolor='black')
+        bwith = 3
+        ax2.spines['bottom'].set_color('limegreen')
+        ax2.spines['bottom'].set_linewidth(bwith)
+        ax2.spines['top'].set_color('limegreen')
+        ax2.spines['top'].set_linewidth(bwith)
+        ax2.spines['left'].set_color('limegreen')
+        ax2.spines['left'].set_linewidth(bwith)
+        ax2.spines['right'].set_color('limegreen')
+        ax2.spines['right'].set_linewidth(bwith)
+        ax2.invert_yaxis()
+        ax2.tick_params(axis='x', labelsize=16)
+        ax2.tick_params(axis='y', labelsize=16)
+        ax2.tick_params(top=True, labeltop=True, bottom=False, labelbottom=False)
+        ax2.axhspan(ymin=-0.5, ymax=m *dx, facecolor='blue', alpha=0.5)
+        ax2.axhspan(ymin=m *dx, ymax=16.6, facecolor='gold', alpha=0.6)
+        ax2.set_xlabel( str(round((i*0.1)/60*15/7))+' min', labelpad=-350,color='r', size=22)
+        ax2.set_xlim(0, 10.1)               # reset the scale to match mM
+        ax2.set_xticks([0, 2, 4, 6, 8, 10])
+        ax2.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
+        k = str(i).rjust(5, '0')
+        print(k)
+        plt.savefig("pic-2/temp" + k + '.jpg')
